@@ -1,11 +1,9 @@
 require("dotenv").config();
 process.removeAllListeners("warning");
+const fetch = (...args) => import("node-fetch").then(({ default: f }) => f(...args));
 const express = require("express");
 const cors = require("cors");
 const { Pool } = require("pg");
-const { exec } = require("child_process");
-const fs = require("fs");
-const path = require("path");
 
 const app = express();
 app.use(cors({
@@ -18,62 +16,38 @@ app.use(cors({
 }));
 app.use(express.json());
 
+// Proxy code execution through backend to avoid CORS issues with Piston
 app.post("/api/execute", async (req, res) => {
   const { language, version, files } = req.body;
   const code = files && files[0] ? files[0].content : "";
   if (!code) return res.json({ run: { stdout: "", stderr: "" } });
 
-  const id = Date.now() + Math.floor(Math.random() * 1000);
-  let cmd = "";
-  let filepath = "";
+  const PISTON_VERSIONS = {
+    python: { lang: "python", ver: "3.10.0" },
+    c: { lang: "c", ver: "10.2.0" },
+    java: { lang: "java", ver: "15.0.2" },
+  };
 
-  if (language === "python") {
-    filepath = path.join(__dirname, `run_${id}.py`);
-    fs.writeFileSync(filepath, code);
-    cmd = `python3 "${filepath}"`;
-  } else if (language === "javascript" || language === "node") {
-    filepath = path.join(__dirname, `run_${id}.js`);
-    fs.writeFileSync(filepath, code);
-    cmd = `node "${filepath}"`;
-  } else {
-    // For Java, C, C++ — use Piston API
-    try {
-      console.log(`[Proxy] Executing ${language} v${version} via Piston...`);
-      const pistonRes = await fetch("https://emkc.org/api/v2/piston/execute", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          language,
-          version,
-          files: [{ content: code }],
-        }),
-      });
-      
-      const data = await pistonRes.json();
-      console.log(`[Proxy] Piston response received for ${language}`);
-      return res.json(data);
-    } catch (err) {
-      console.error(`[Proxy] Error:`, err.message);
-      return res.json({
-        run: { stdout: "", stderr: "Execution proxy error: " + err.message },
-        compile: { stderr: "" }
-      });
-    }
-  }
+  const cfg = PISTON_VERSIONS[language] || { lang: language, ver: version || "*" };
 
-  // Only reaches here for Python & JS local execution
-  exec(cmd, { timeout: 10000 }, (error, stdout, stderr) => {
-    try { if (fs.existsSync(filepath)) fs.unlinkSync(filepath); } catch(e) {}
-    res.json({
-      run: {
-        stdout: stdout || "",
-        stderr: stderr || (error && !error.killed ? error.message : "")
-      },
-      compile: {
-        stderr: error && error.killed ? "Execution timed out (10s limit)" : ""
-      }
+  try {
+    const response = await fetch("https://emkc.org/api/v2/piston/execute", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        language: cfg.lang,
+        version: cfg.ver,
+        files: [{ content: code }],
+      }),
     });
-  });
+    const data = await response.json();
+    res.json(data);
+  } catch (err) {
+    res.json({
+      run: { stdout: "", stderr: "Execution service unavailable: " + err.message },
+      compile: { stderr: "" }
+    });
+  }
 });
 
 if (!process.env.DATABASE_URL) {

@@ -1,14 +1,12 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 
 const API = process.env.REACT_APP_API_URL || "";
-const PISTON = `${API}/api/execute`;
 const TOTAL_SECONDS = 10 * 60; // 10 minutes
 
 const LANG_CONFIG = {
-  python:     { pistonLang: "python",     pistonVer: "3.10.0",  label: "Python",     starter: "# Write your solution here\n\n" },
-  javascript: { pistonLang: "javascript", pistonVer: "18.15.0", label: "JavaScript", starter: "// Write your solution here\n\n" },
-  c:          { pistonLang: "c",          pistonVer: "10.2.1",  label: "C",          starter: "#include <stdio.h>\n\nint main() {\n  // Write your solution here\n\n  return 0;\n}\n" },
-  java:       { pistonLang: "java",       pistonVer: "15.0.2",  label: "Java",       starter: "public class Solution {\n  public static void main(String[] args) {\n    // Write your solution here\n\n  }\n}\n" },
+  python: { pistonLang: "python", pistonVer: "3.10.0", label: "Python", starter: "# Write your solution here\n\n" },
+  c: { pistonLang: "c", pistonVer: "10.2.0", label: "C", starter: "#include <stdio.h>\n\nint main() {\n  // Write your solution here\n  return 0;\n}" },
+  java: { pistonLang: "java", pistonVer: "15.0.2", label: "Java", starter: "import java.util.*;\n\npublic class Main {\n  public static void main(String[] args) {\n    // Write your solution here\n  }\n}" },
 };
 
 function matrixDisplay(matrix) {
@@ -132,7 +130,7 @@ export default function TestScreen({ sessionData, onFinish }) {
     const cfg = LANG_CONFIG[currentLang];
     const code = codes[qIndex] || "";
     try {
-      const res = await fetch(PISTON, {
+      const res = await fetch(`${API}/api/execute`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
