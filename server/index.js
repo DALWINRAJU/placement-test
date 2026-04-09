@@ -68,14 +68,23 @@ app.post("/api/execute", async (req, res) => {
           language_id: judge0Id,
           source_code: code,
           stdin: "",
+          // Request plain text to avoid "mixer numbers" (base64)
+          base64_encoded: false,
         }),
       });
       const data = await response.json();
-      console.log(`[Judge0] Response for ${language}:`, JSON.stringify(data));
+      console.log(`[Judge0] Raw response for ${language}:`, JSON.stringify(data));
       
       const decode = (str) => {
         if (!str) return "";
-        try { return Buffer.from(str, "base64").toString("utf-8"); } catch(e) { return str; }
+        // If it looks like base64 and the instance forces it, we decode.
+        // Otherwise, return as is. Most public instances return plain text when base64_encoded is false.
+        try {
+          if (str.length > 4 && /^[A-Za-z0-9+/=]+$/.test(str.trim())) {
+            return Buffer.from(str, "base64").toString("utf-8");
+          }
+        } catch(e) {}
+        return str;
       };
 
       // Map Judge0 format to Piston format
