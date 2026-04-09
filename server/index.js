@@ -1,4 +1,5 @@
 require("dotenv").config();
+process.removeAllListeners("warning");
 const express = require("express");
 const cors = require("cors");
 const { Pool } = require("pg");
@@ -56,11 +57,17 @@ app.post("/api/execute", (req, res) => {
   });
 });
 
+if (!process.env.DATABASE_URL) {
+  console.error("❌ DATABASE_URL is not set! Add it in Render Environment Variables.");
+  process.exit(1);
+}
+
+// Suppress pg SSL warning for Neon compatibility
+process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
+
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: process.env.NODE_ENV === "production"
-    ? { rejectUnauthorized: true }
-    : false,
+  ssl: { rejectUnauthorized: false },
 });
 
 // ── DB INIT ──────────────────────────────────────────────────────────────────
@@ -276,6 +283,22 @@ app.get("/api/admin/stats", async (req, res) => {
 
 // ─────────────────────────────────────────────────────────────────────────────
 const PORT = process.env.PORT || 4000;
-initDB().then(() => {
-  app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+
+// Test DB connection first before starting
+pool.connect((err, client, release) => {
+  if (err) {
+    console.error("❌ Database connection failed:", err.message);
+    console.error("Check your DATABASE_URL environment variable in Render.");
+    process.exit(1);
+  }
+  release();
+  console.log("✅ Database connected");
+  initDB()
+    .then(() => {
+      app.listen(PORT, () => console.log(`✅ Server running on port ${PORT}`));
+    })
+    .catch(err => {
+      console.error("❌ DB init failed:", err.message);
+      process.exit(1);
+    });
 });
