@@ -1,6 +1,5 @@
 require("dotenv").config();
 process.removeAllListeners("warning");
-const fetch = (...args) => import("node-fetch").then(({ default: f }) => f(...args));
 const express = require("express");
 const cors = require("cors");
 const { Pool } = require("pg");
@@ -40,9 +39,20 @@ app.post("/api/execute", async (req, res) => {
         files: [{ content: code }],
       }),
     });
+
     const data = await response.json();
+    
+    // If Piston returns an error (like 400), it might contain a "message" field instead of "run"
+    if (!data.run && data.message) {
+      return res.json({
+        run: { stdout: "", stderr: `Piston Error: ${data.message}` },
+        compile: { stderr: "" }
+      });
+    }
+
     res.json(data);
   } catch (err) {
+    console.error("Execution error:", err);
     res.json({
       run: { stdout: "", stderr: "Execution service unavailable: " + err.message },
       compile: { stderr: "" }

@@ -140,18 +140,24 @@ export default function TestScreen({ sessionData, onFinish }) {
         }),
       });
       const data = await res.json();
+      
       const stdout = data.run?.stdout || "";
-      const stderr = data.run?.stderr || "";
+      const stderr = data.run?.stderr || (data.message ? `Error: ${data.message}` : "");
       const compileErr = data.compile?.stderr || "";
+      const runError = data.run?.stderr || "";
 
       let display = stdout;
-      if (stderr) display += (display ? "\n" : "") + "[stderr]\n" + stderr;
+      if (stderr) display += (display ? "\n" : "") + stderr;
       if (compileErr) display = "[compile error]\n" + compileErr + (display ? "\n" + display : "");
+      
+      // Handle case where Piston might return an error message instead of run results
+      if (!data.run && data.message) display = "[error]\n" + data.message;
+      
       if (!display) display = "(no output)";
 
       const trimmedOut = stdout.trim();
       const expected = currentQ.expected.trim();
-      const isPassed = trimmedOut === expected && !compileErr;
+      const isPassed = trimmedOut === expected && !compileErr && !runError && !data.message;
 
       setOutputs(prev => ({ ...prev, [qIndex]: { display, raw: trimmedOut } }));
       setPassed(prev => ({ ...prev, [qIndex]: isPassed }));
