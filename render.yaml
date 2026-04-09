@@ -5,14 +5,16 @@ services:
     env: node
     rootDir: server
     buildCommand: npm install
-    startCommand: node index.js
+    startCommand: node --no-warnings index.js
     envVars:
       - key: DATABASE_URL
-        sync: false          # Set manually in Render dashboard
+        sync: false
       - key: ADMIN_SECRET
-        sync: false          # Set manually in Render dashboard
+        sync: false
       - key: NODE_ENV
         value: production
+      - key: FRONTEND_URL
+        sync: false
 
   # ── Frontend ─────────────────────────────────────────────────────────────
   - type: web
@@ -23,7 +25,11 @@ services:
     staticPublishPath: build
     envVars:
       - key: REACT_APP_API_URL
-        sync: false          # Set to your API service URL e.g. https://placement-test-api.onrender.com
+        sync: false
+    headers:
+      - path: /*
+        name: X-Frame-Options
+        value: SAMEORIGIN
     routes:
       - type: rewrite
         source: /*
