@@ -43,7 +43,7 @@ app.post("/api/execute", (req, res) => {
   }
 
   exec(cmd, { timeout: 10000 }, (error, stdout, stderr) => {
-    try { if (fs.existsSync(filepath)) fs.unlinkSync(filepath); } catch (e) { }
+    try { if (fs.existsSync(filepath)) fs.unlinkSync(filepath); } catch(e) {}
     res.json({
       run: {
         stdout: stdout || "",
@@ -58,7 +58,9 @@ app.post("/api/execute", (req, res) => {
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false },
+  ssl: process.env.NODE_ENV === "production"
+    ? { rejectUnauthorized: true }
+    : false,
 });
 
 // ── DB INIT ──────────────────────────────────────────────────────────────────
