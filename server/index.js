@@ -3,6 +3,9 @@ process.removeAllListeners("warning");
 const express = require("express");
 const cors = require("cors");
 const { Pool } = require("pg");
+const { exec } = require("child_process");
+const fs = require("fs");
+const path = require("path");
 
 const app = express();
 app.use(cors({
@@ -15,49 +18,77 @@ app.use(cors({
 }));
 app.use(express.json());
 
-// Proxy code execution through backend to avoid CORS issues with Piston
 app.post("/api/execute", async (req, res) => {
   const { language, version, files } = req.body;
   const code = files && files[0] ? files[0].content : "";
   if (!code) return res.json({ run: { stdout: "", stderr: "" } });
 
-  const PISTON_VERSIONS = {
-    python: { lang: "python", ver: "3.10.0" },
-    c: { lang: "c", ver: "10.2.0" },
-    java: { lang: "java", ver: "15.0.2" },
+  const id = Date.now() + Math.floor(Math.random() * 1000);
+  
+  // 1. Local Execution for Python & JavaScript
+  if (language === "python" || language === "javascript") {
+    const isPy = language === "python";
+    const ext = isPy ? "py" : "js";
+    const filepath = path.join(__dirname, `run_${id}.${ext}`);
+    const cmd = isPy ? `python3 "${filepath}"` : `node "${filepath}"`;
+    
+    try {
+      fs.writeFileSync(filepath, code);
+      console.log(`[Local] Running ${language}...`);
+      exec(cmd, { timeout: 10000 }, (error, stdout, stderr) => {
+        try { if (fs.existsSync(filepath)) fs.unlinkSync(filepath); } catch(e) {}
+        res.json({
+          run: {
+            stdout: stdout || "",
+            stderr: stderr || (error && !error.killed ? error.message : "")
+          },
+          compile: { stderr: "" }
+        });
+      });
+      return;
+    } catch (err) {
+      return res.json({ run: { stdout: "", stderr: "Local execution failed: " + err.message } });
+    }
+  }
+
+  // 2. Judge0 Execution for Java & C (and others)
+  const JUDGE0_LANGS = {
+    java: 62, // Java (OpenJDK 13.0.1)
+    c: 50,    // C (GCC 9.2.0)
   };
 
-  const cfg = PISTON_VERSIONS[language] || { lang: language, ver: version || "*" };
-
-  try {
-    const response = await fetch("https://emkc.org/api/v2/piston/execute", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        language: cfg.lang,
-        version: cfg.ver,
-        files: [{ content: code }],
-      }),
-    });
-
-    const data = await response.json();
-    
-    // If Piston returns an error (like 400), it might contain a "message" field instead of "run"
-    if (!data.run && data.message) {
-      return res.json({
-        run: { stdout: "", stderr: `Piston Error: ${data.message}` },
-        compile: { stderr: "" }
+  const judge0Id = JUDGE0_LANGS[language];
+  if (judge0Id) {
+    try {
+      console.log(`[Judge0] Running ${language}...`);
+      const response = await fetch("https://ce.judge0.com/submissions?wait=true", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          language_id: judge0Id,
+          source_code: code,
+          stdin: "",
+        }),
       });
+      const data = await response.json();
+      
+      // Map Judge0 format to Piston format
+      return res.json({
+        run: {
+          stdout: data.stdout || "",
+          stderr: data.stderr || (data.message || ""),
+        },
+        compile: {
+          stderr: data.compile_output || "",
+        }
+      });
+    } catch (err) {
+      return res.json({ run: { stdout: "", stderr: "Judge0 execution failed: " + err.message } });
     }
-
-    res.json(data);
-  } catch (err) {
-    console.error("Execution error:", err);
-    res.json({
-      run: { stdout: "", stderr: "Execution service unavailable: " + err.message },
-      compile: { stderr: "" }
-    });
   }
+
+  // Fallback (e.g. for Piston if whitelisted)
+  res.json({ run: { stdout: "", stderr: "Unsupported language or execution provider restricted." } });
 });
 
 if (!process.env.DATABASE_URL) {
