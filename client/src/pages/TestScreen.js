@@ -1,15 +1,23 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 
 const API = process.env.REACT_APP_API_URL || "";
-const PISTON = `${API}/api/execute`;
+const PISTON = "https://emkc.org/api/v2/piston/execute";
+const TOTAL_SECONDS = 10 * 60; // 10 minutes
 
 const LANG_CONFIG = {
-  python:     { pistonLang: "python",     pistonVer: "3.10.0",  label: "Python",     starter: "# Write your solution here\n\n" },
-  javascript: { pistonLang: "javascript", pistonVer: "18.15.0", label: "JavaScript", starter: "// Write your solution here\n\n" },
+  python: { pistonLang: "python", pistonVer: "3.10.0", label: "Python", starter: "# Write your solution here\n\n" },
+  c: { pistonLang: "c", pistonVer: "10.2.0", label: "C", starter: "#include <stdio.h>\n\nint main() {\n  // Write your solution here\n  return 0;\n}" },
+  java: { pistonLang: "java", pistonVer: "15.0.2", label: "Java", starter: "import java.util.*;\n\npublic class Main {\n  public static void main(String[] args) {\n    // Write your solution here\n  }\n}" },
 };
 
 function matrixDisplay(matrix) {
   return matrix.map(row => "[" + row.join(", ") + "]").join("\n");
+}
+
+function formatTime(secs) {
+  const m = Math.floor(secs / 60);
+  const s = secs % 60;
+  return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
 }
 
 export default function TestScreen({ sessionData, onFinish }) {
@@ -23,10 +31,32 @@ export default function TestScreen({ sessionData, onFinish }) {
   const [warningCount, setWarningCount] = useState(0);
   const [showWarning, setShowWarning] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+  const [timeLeft, setTimeLeft] = useState(TOTAL_SECONDS);
+  const [showTimeWarning, setShowTimeWarning] = useState(false);
   const autoSubmitRef = useRef(false);
+  const timerRef = useRef(null);
 
   const currentQ = questions[qIndex];
   const currentLang = langs[qIndex];
+
+  // ── Timer ─────────────────────────────────────────────────────────────────
+  useEffect(() => {
+    timerRef.current = setInterval(() => {
+      setTimeLeft(prev => {
+        if (prev <= 1) {
+          clearInterval(timerRef.current);
+          if (!autoSubmitRef.current) {
+            autoSubmitRef.current = true;
+            doSubmit(true);
+          }
+          return 0;
+        }
+        if (prev === 120) setShowTimeWarning(true); // 2 min warning
+        return prev - 1;
+      });
+    }, 1000);
+    return () => clearInterval(timerRef.current);
+  }, []);
 
   // ── Anti-cheat: disable right-click, text selection ──────────────────────
   useEffect(() => {
@@ -82,7 +112,6 @@ export default function TestScreen({ sessionData, onFinish }) {
     };
   }, [handleFSChange]);
 
-  // Enter fullscreen on mount
   useEffect(() => {
     setTimeout(requestFullscreen, 300);
   }, [requestFullscreen]);
@@ -112,18 +141,15 @@ export default function TestScreen({ sessionData, onFinish }) {
         }),
       });
       const data = await res.json();
-
       const stdout = data.run?.stdout || "";
       const stderr = data.run?.stderr || "";
       const compileErr = data.compile?.stderr || "";
 
-      // Show everything to student
       let display = stdout;
       if (stderr) display += (display ? "\n" : "") + "[stderr]\n" + stderr;
       if (compileErr) display = "[compile error]\n" + compileErr + (display ? "\n" + display : "");
       if (!display) display = "(no output)";
 
-      // Compare only stdout trimmed against expected
       const trimmedOut = stdout.trim();
       const expected = currentQ.expected.trim();
       const isPassed = trimmedOut === expected && !compileErr;
@@ -153,6 +179,7 @@ export default function TestScreen({ sessionData, onFinish }) {
   // ── Submit ────────────────────────────────────────────────────────────────
   async function doSubmit(isAuto = false) {
     if (submitted) return;
+    clearInterval(timerRef.current);
     setSubmitted(true);
     try {
       const res = await fetch(`${API}/api/session/${session.id}/submit`, {
@@ -173,10 +200,12 @@ export default function TestScreen({ sessionData, onFinish }) {
   }
 
   const progressPct = ((qIndex + 1) / questions.length) * 100;
+  const timerColor = timeLeft <= 60 ? "#dc2626" : timeLeft <= 120 ? "#d97706" : "#059669";
+  const isUrgent = timeLeft <= 60;
 
   return (
     <div>
-      {/* Warning overlay */}
+      {/* Fullscreen warning overlay */}
       {showWarning && (
         <div className="warning-overlay">
           <div className="warning-box">
@@ -195,14 +224,53 @@ export default function TestScreen({ sessionData, onFinish }) {
         </div>
       )}
 
-      {/* Top bar */}
+      {/* 2-minute warning overlay */}
+      {showTimeWarning && !submitted && (
+        <div className="warning-overlay">
+          <div className="warning-box">
+            <div style={{ fontSize: 40, marginBottom: 12 }}>⏰</div>
+            <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 8, color: "#d97706" }}>
+              2 minutes left!
+            </h2>
+            <p style={{ fontSize: 14, color: "#374151", marginBottom: "1.25rem", lineHeight: 1.6 }}>
+              Only <strong>2 minutes</strong> remaining. Please submit your answers soon.
+            </p>
+            <button className="btn-primary" style={{ background: "#d97706" }}
+              onClick={() => setShowTimeWarning(false)}>
+              Continue
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Top bar with timer */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.75rem" }}>
         <span style={{ fontSize: 13, fontWeight: 600, color: "#374151" }}>
           Placement Test
         </span>
-        <span style={{ fontSize: 12, color: warningCount > 0 ? "#dc2626" : "#9ca3af", fontWeight: warningCount > 0 ? 600 : 400 }}>
-          {warningCount > 0 ? `⚠ Warning ${warningCount}/2` : ""}
-        </span>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          {warningCount > 0 && (
+            <span style={{ fontSize: 12, color: "#dc2626", fontWeight: 600 }}>
+              ⚠ {warningCount}/2
+            </span>
+          )}
+          {/* Timer */}
+          <div style={{
+            background: isUrgent ? "#fee2e2" : timeLeft <= 120 ? "#fef3c7" : "#f0fdf4",
+            border: `1.5px solid ${timerColor}`,
+            borderRadius: 8,
+            padding: "4px 12px",
+            fontFamily: "monospace",
+            fontSize: 16,
+            fontWeight: 700,
+            color: timerColor,
+            minWidth: 70,
+            textAlign: "center",
+            animation: isUrgent ? "pulse 1s infinite" : "none",
+          }}>
+            {formatTime(timeLeft)}
+          </div>
+        </div>
       </div>
 
       {/* Question tab switcher */}
@@ -210,35 +278,19 @@ export default function TestScreen({ sessionData, onFinish }) {
         {questions.map((q, i) => {
           const isActive = qIndex === i;
           const isPassed = passed[i];
-          const hasOutput = !!(outputs[i]?.display && outputs[i].display !== 'Running...');
+          const hasOutput = !!(outputs[i]?.display && outputs[i].display !== "Running...");
           return (
-            <button
-              key={q.id}
-              onClick={() => setQIndex(i)}
-              style={{
-                flex: 1,
-                padding: "0.6rem 0.5rem",
-                borderRadius: 10,
-                border: isActive ? "2px solid #6d28d9" : "1px solid #e5e7eb",
-                background: isActive ? "#ede9fe" : isPassed ? "#f0fdf4" : hasOutput ? "#fff7ed" : "#fff",
-                color: isActive ? "#4c1d95" : isPassed ? "#065f46" : hasOutput ? "#92400e" : "#6b7280",
-                fontWeight: isActive ? 700 : 500,
-                fontSize: 13,
-                cursor: "pointer",
-                display: "flex",
-                flexDirection: "column",
-                alignItems: "center",
-                gap: 3,
-                transition: "all 0.15s",
-              }}
-            >
+            <button key={q.id} onClick={() => setQIndex(i)} style={{
+              flex: 1, padding: "0.6rem 0.5rem", borderRadius: 10,
+              border: isActive ? "2px solid #6d28d9" : "1px solid #e5e7eb",
+              background: isActive ? "#ede9fe" : isPassed ? "#f0fdf4" : hasOutput ? "#fff7ed" : "#fff",
+              color: isActive ? "#4c1d95" : isPassed ? "#065f46" : hasOutput ? "#92400e" : "#6b7280",
+              fontWeight: isActive ? 700 : 500, fontSize: 13, cursor: "pointer",
+              display: "flex", flexDirection: "column", alignItems: "center", gap: 3,
+            }}>
               <span style={{ fontSize: 11, opacity: 0.75 }}>Q{i + 1}</span>
-              <span style={{ fontSize: 12 }}>
-                {q.type === "array" ? "Array" : "Pattern"}
-              </span>
-              <span style={{ fontSize: 16 }}>
-                {isPassed ? "✓" : hasOutput ? "✗" : "○"}
-              </span>
+              <span style={{ fontSize: 12 }}>{q.type === "array" ? "Array" : "Pattern"}</span>
+              <span style={{ fontSize: 16 }}>{isPassed ? "✓" : hasOutput ? "✗" : "○"}</span>
             </button>
           );
         })}
@@ -258,7 +310,6 @@ export default function TestScreen({ sessionData, onFinish }) {
         <p style={{ fontSize: 14, color: "#374151", lineHeight: 1.65, marginBottom: "0.75rem" }}>
           {currentQ.desc}
         </p>
-
         {currentQ.matrix && (
           <>
             <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 4 }}>Input matrix:</div>
@@ -271,7 +322,6 @@ export default function TestScreen({ sessionData, onFinish }) {
             <div className="code-block">{currentQ.input}</div>
           </>
         )}
-
         <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 4 }}>Expected output:</div>
         <div className="code-block" style={{ color: "#065f46", background: "#f0fdf4", borderColor: "#bbf7d0" }}>
           {currentQ.expected}
@@ -303,9 +353,7 @@ export default function TestScreen({ sessionData, onFinish }) {
               setTimeout(() => { e.target.selectionStart = e.target.selectionEnd = s + 2; }, 0);
             }
           }}
-          spellCheck={false}
-          autoCorrect="off"
-          autoCapitalize="off"
+          spellCheck={false} autoCorrect="off" autoCapitalize="off"
         />
 
         <button className="btn-run" onClick={runCode} disabled={running}>
@@ -313,9 +361,7 @@ export default function TestScreen({ sessionData, onFinish }) {
         </button>
 
         <div style={{ fontSize: 12, color: "#6b7280", marginBottom: "0.4rem" }}>Output:</div>
-        <div className="output-box">
-          {outputs[qIndex]?.display || "—"}
-        </div>
+        <div className="output-box">{outputs[qIndex]?.display || "—"}</div>
 
         {outputs[qIndex]?.display && outputs[qIndex].display !== "Running..." && (
           <div style={{ marginBottom: "0.75rem" }}>
@@ -343,73 +389,60 @@ export default function TestScreen({ sessionData, onFinish }) {
           </div>
         )}
 
-        {/* Navigation bar */}
-        <div style={{
-          display: "flex", gap: "0.6rem", marginTop: "1rem",
-          paddingTop: "1rem", borderTop: "1px solid #f3f4f6"
-        }}>
-          <button
-            onClick={() => setQIndex(i => Math.max(0, i - 1))}
-            disabled={qIndex === 0}
+        {/* Navigation */}
+        <div style={{ display: "flex", gap: "0.6rem", marginTop: "1rem", paddingTop: "1rem", borderTop: "1px solid #f3f4f6" }}>
+          <button onClick={() => setQIndex(i => Math.max(0, i - 1))} disabled={qIndex === 0}
             style={{
-              flex: 1, padding: "0.7rem",
-              borderRadius: 10, border: "1px solid #d1d5db",
+              flex: 1, padding: "0.7rem", borderRadius: 10, border: "1px solid #d1d5db",
               background: qIndex === 0 ? "#f9fafb" : "#fff",
               color: qIndex === 0 ? "#d1d5db" : "#374151",
               fontWeight: 600, fontSize: 14, cursor: qIndex === 0 ? "not-allowed" : "pointer",
-              display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
-            }}
-          >
+              display: "flex", alignItems: "center", justifyContent: "center",
+            }}>
             ← Previous
           </button>
-
           {qIndex < questions.length - 1 ? (
-            <button
-              onClick={() => setQIndex(i => Math.min(questions.length - 1, i + 1))}
+            <button onClick={() => setQIndex(i => Math.min(questions.length - 1, i + 1))}
               style={{
-                flex: 1, padding: "0.7rem",
-                borderRadius: 10, border: "2px solid #6d28d9",
-                background: "#6d28d9", color: "#fff",
+                flex: 1, padding: "0.7rem", borderRadius: 10,
+                border: "2px solid #6d28d9", background: "#6d28d9", color: "#fff",
                 fontWeight: 600, fontSize: 14, cursor: "pointer",
-                display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
-              }}
-            >
+                display: "flex", alignItems: "center", justifyContent: "center",
+              }}>
               Next →
             </button>
           ) : (
-            <button
-              onClick={() => doSubmit(false)}
-              disabled={submitted}
+            <button onClick={() => doSubmit(false)} disabled={submitted}
               style={{
-                flex: 1, padding: "0.7rem",
-                borderRadius: 10, border: "none",
+                flex: 1, padding: "0.7rem", borderRadius: 10, border: "none",
                 background: submitted ? "#6ee7b7" : "#059669",
                 color: "#fff", fontWeight: 700, fontSize: 14,
                 cursor: submitted ? "not-allowed" : "pointer",
-                display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
-              }}
-            >
+                display: "flex", alignItems: "center", justifyContent: "center",
+              }}>
               {submitted ? "Submitting..." : "Submit Test ✓"}
             </button>
           )}
         </div>
 
-        {/* Question dot indicators */}
+        {/* Dot indicators */}
         <div style={{ display: "flex", justifyContent: "center", gap: 8, marginTop: "0.75rem" }}>
           {questions.map((_, i) => (
-            <button
-              key={i}
-              onClick={() => setQIndex(i)}
-              style={{
-                width: 10, height: 10, borderRadius: "50%", border: "none",
-                background: i === qIndex ? "#6d28d9" : passed[i] ? "#059669" : outputs[i]?.raw ? "#f59e0b" : "#d1d5db",
-                cursor: "pointer", padding: 0, transition: "background 0.2s",
-              }}
-              title={`Question ${i + 1}`}
-            />
+            <button key={i} onClick={() => setQIndex(i)} style={{
+              width: 10, height: 10, borderRadius: "50%", border: "none", padding: 0,
+              background: i === qIndex ? "#6d28d9" : passed[i] ? "#059669" : outputs[i]?.raw ? "#f59e0b" : "#d1d5db",
+              cursor: "pointer", transition: "background 0.2s",
+            }} />
           ))}
         </div>
       </div>
+
+      <style>{`
+        @keyframes pulse {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.6; }
+        }
+      `}</style>
     </div>
   );
 }

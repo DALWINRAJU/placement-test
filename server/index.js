@@ -18,7 +18,7 @@ app.use(cors({
 }));
 app.use(express.json());
 
-app.post("/api/execute", (req, res) => {
+app.post("/api/execute", async (req, res) => {
   const { language, version, files } = req.body;
   const code = files && files[0] ? files[0].content : "";
   if (!code) return res.json({ run: { stdout: "", stderr: "" } });
@@ -36,11 +36,25 @@ app.post("/api/execute", (req, res) => {
     fs.writeFileSync(filepath, code);
     cmd = `node "${filepath}"`;
   } else {
-    // For Java, C, C++ — not supported locally, tell frontend to use Piston
-    return res.json({
-      run: { stdout: "", stderr: "" },
-      compile: { stderr: `__USE_PISTON__` }
-    });
+    // For Java, C, C++ — use Piston API
+    try {
+      const pistonRes = await fetch("https://emkc.org/api/v2/piston/execute", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          language,
+          version,
+          files: [{ content: code }],
+        }),
+      });
+      const data = await pistonRes.json();
+      return res.json(data);
+    } catch (err) {
+      return res.json({
+        run: { stdout: "", stderr: "Execution error: " + err.message },
+        compile: { stderr: "" }
+      });
+    }
   }
 
   exec(cmd, { timeout: 10000 }, (error, stdout, stderr) => {
