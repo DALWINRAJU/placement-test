@@ -7,7 +7,14 @@ const fs = require("fs");
 const path = require("path");
 
 const app = express();
-app.use(cors());
+app.use(cors({
+  origin: [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    process.env.FRONTEND_URL || "",
+  ],
+  methods: ["GET", "POST"],
+}));
 app.use(express.json());
 
 app.post("/api/execute", (req, res) => {
@@ -22,24 +29,28 @@ app.post("/api/execute", (req, res) => {
   if (language === "python") {
     filepath = path.join(__dirname, `run_${id}.py`);
     fs.writeFileSync(filepath, code);
-    cmd = `python "${filepath}"`;
+    cmd = `python3 "${filepath}"`;
   } else if (language === "javascript" || language === "node") {
     filepath = path.join(__dirname, `run_${id}.js`);
     fs.writeFileSync(filepath, code);
     cmd = `node "${filepath}"`;
   } else {
-    return res.json({ compile: { stderr: `Language ${language} is not supported locally on this machine.` } });
+    // For Java, C, C++ — not supported locally, tell frontend to use Piston
+    return res.json({
+      run: { stdout: "", stderr: "" },
+      compile: { stderr: `__USE_PISTON__` }
+    });
   }
 
-  exec(cmd, { timeout: 5000 }, (error, stdout, stderr) => {
-    if (fs.existsSync(filepath)) fs.unlinkSync(filepath);
+  exec(cmd, { timeout: 10000 }, (error, stdout, stderr) => {
+    try { if (fs.existsSync(filepath)) fs.unlinkSync(filepath); } catch (e) { }
     res.json({
       run: {
         stdout: stdout || "",
-        stderr: stderr || ""
+        stderr: stderr || (error && !error.killed ? error.message : "")
       },
       compile: {
-        stderr: error && error.killed ? "Execution timed out" : ""
+        stderr: error && error.killed ? "Execution timed out (10s limit)" : ""
       }
     });
   });
