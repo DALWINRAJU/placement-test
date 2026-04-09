@@ -6,10 +6,14 @@ import AdminPage from "./pages/AdminPage";
 import "./App.css";
 
 export default function App() {
+  const hash = window.location.hash;
   const path = window.location.pathname;
-  if (path === "/admin") return <AdminPage />;
 
-  const [screen, setScreen] = useState("start"); // start | test | result
+  // Support both /admin and #admin
+  const isAdmin = path === "/admin" || hash === "#admin" || hash === "#/admin";
+  if (isAdmin) return <AdminPage />;
+
+  const [screen, setScreen] = useState("start");
   const [sessionData, setSessionData] = useState(null);
 
   return (
