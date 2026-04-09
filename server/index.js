@@ -38,6 +38,7 @@ app.post("/api/execute", async (req, res) => {
   } else {
     // For Java, C, C++ — use Piston API
     try {
+      console.log(`[Proxy] Executing ${language} v${version} via Piston...`);
       const pistonRes = await fetch("https://emkc.org/api/v2/piston/execute", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -47,16 +48,20 @@ app.post("/api/execute", async (req, res) => {
           files: [{ content: code }],
         }),
       });
+      
       const data = await pistonRes.json();
+      console.log(`[Proxy] Piston response received for ${language}`);
       return res.json(data);
     } catch (err) {
+      console.error(`[Proxy] Error:`, err.message);
       return res.json({
-        run: { stdout: "", stderr: "Execution error: " + err.message },
+        run: { stdout: "", stderr: "Execution proxy error: " + err.message },
         compile: { stderr: "" }
       });
     }
   }
 
+  // Only reaches here for Python & JS local execution
   exec(cmd, { timeout: 10000 }, (error, stdout, stderr) => {
     try { if (fs.existsSync(filepath)) fs.unlinkSync(filepath); } catch(e) {}
     res.json({
