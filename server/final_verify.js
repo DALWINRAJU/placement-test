@@ -1,4 +1,4 @@
-const PORT = 5007;
+const PORT = 5000;
 
 async function test(lang, code) {
   console.log(`Testing ${lang}...`);

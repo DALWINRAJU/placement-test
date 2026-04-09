@@ -51,16 +51,16 @@ app.post("/api/execute", async (req, res) => {
     }
   }
 
-  // 2. Judge0 Execution for Java & C (and others)
   const JUDGE0_LANGS = {
     java: 62, // Java (OpenJDK 13.0.1)
     c: 50,    // C (GCC 9.2.0)
+    cpp: 54   // C++ (GCC 9.2.0)
   };
 
   const judge0Id = JUDGE0_LANGS[language];
   if (judge0Id) {
     try {
-      console.log(`[Judge0] Running ${language}...`);
+      console.log(`[Judge0] Submitting ${language}...`);
       const response = await fetch("https://ce.judge0.com/submissions?wait=true", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -71,18 +71,25 @@ app.post("/api/execute", async (req, res) => {
         }),
       });
       const data = await response.json();
+      console.log(`[Judge0] Response for ${language}:`, JSON.stringify(data));
       
+      const decode = (str) => {
+        if (!str) return "";
+        try { return Buffer.from(str, "base64").toString("utf-8"); } catch(e) { return str; }
+      };
+
       // Map Judge0 format to Piston format
       return res.json({
         run: {
-          stdout: data.stdout || "",
-          stderr: data.stderr || (data.message || ""),
+          stdout: decode(data.stdout),
+          stderr: decode(data.stderr) || (data.message || ""),
         },
         compile: {
-          stderr: data.compile_output || "",
+          stderr: decode(data.compile_output),
         }
       });
     } catch (err) {
+      console.error(`[Judge0] Error:`, err);
       return res.json({ run: { stdout: "", stderr: "Judge0 execution failed: " + err.message } });
     }
   }
