@@ -75,26 +75,14 @@ app.post("/api/execute", async (req, res) => {
       const data = await response.json();
       console.log(`[Judge0] Raw response for ${language}:`, JSON.stringify(data));
       
-      const decode = (str) => {
-        if (!str) return "";
-        // If it looks like base64 and the instance forces it, we decode.
-        // Otherwise, return as is. Most public instances return plain text when base64_encoded is false.
-        try {
-          if (str.length > 4 && /^[A-Za-z0-9+/=]+$/.test(str.trim())) {
-            return Buffer.from(str, "base64").toString("utf-8");
-          }
-        } catch(e) {}
-        return str;
-      };
-
-      // Map Judge0 format to Piston format
+      // Map Judge0 format to Piston format directly (no accidental decoding)
       return res.json({
         run: {
-          stdout: decode(data.stdout),
-          stderr: decode(data.stderr) || (data.message || ""),
+          stdout: data.stdout || "",
+          stderr: data.stderr || (data.message || ""),
         },
         compile: {
-          stderr: decode(data.compile_output),
+          stderr: data.compile_output || "",
         }
       });
     } catch (err) {
